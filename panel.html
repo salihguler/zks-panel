@@ -55,6 +55,24 @@
   .ayar .ipucu{color:var(--soluk);font-size:12px;margin-top:4px}
   .ayar .yan{display:flex;gap:24px;flex-wrap:wrap}
   .onay{display:inline-flex;gap:6px;align-items:center;font-size:12px}
+  .ist{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a}
+  .ist-kart{background:#fff;border-radius:12px;padding:16px 18px;margin-bottom:14px;box-shadow:0 1px 0 rgba(0,0,0,.06)}
+  .ist-kart h2{font-size:15px;margin:0 0 12px}
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+  .kpi{border:1px solid var(--cizgi);border-radius:10px;padding:10px 12px}
+  .kpi b{font-size:22px;display:block;line-height:1.2;font-weight:650}
+  .kpi span{color:var(--soluk);font-size:12px}
+  .kpi small{display:block;color:var(--soluk);font-size:11.5px;margin-top:2px}
+  .kpi.vurgu{border-color:#bfe3cc;background:#f3fbf6}
+  .lejant{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--soluk);margin-bottom:6px}
+  .lejant i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .grafik svg{width:100%;height:auto;display:block}
+  .grafik text{font-size:10.5px;fill:#6b6b6b;font-family:inherit}
+  .ist details{margin-top:8px;font-size:12.5px}
+  .ist summary{cursor:pointer;color:var(--soluk)}
+  .ist table{border-collapse:collapse;margin-top:6px;font-size:12.5px}
+  .ist td,.ist th{padding:4px 10px;border-bottom:1px solid var(--cizgi);text-align:right}
+  .ist td:first-child,.ist th:first-child{text-align:left}
 </style>
 </head>
 <body>
@@ -80,6 +98,12 @@
     sepetKuponOran: 10,
     sepetKuponSaat: 24,
     sepetGizleDk: 60,
+    siparisSablonlari: [
+      { ad: 'Sipariş hakkında', metin: 'Merhaba {ad}, The ZKS mağazamızdaki {siparis} numaralı siparişiniz hakkında iletişime geçiyoruz.' },
+      { ad: 'Kapıda ödeme teyidi', metin: "Merhaba {ad}, The ZKS'ten ulaşıyoruz.\n\n{siparis} numaralı, *{tutar}* tutarındaki kapıda ödemeli siparişinizi aldık. Siparişinizi onaylıyor musunuz?\n\nOnayınızın ardından siparişiniz hazırlanıp kargoya verilecektir." },
+      { ad: 'Adres teyidi', metin: "Merhaba {ad}, The ZKS'ten ulaşıyoruz.\n\n{siparis} numaralı siparişinizin teslimat adresini teyit etmek istiyoruz:\n\n{adres}\n\nBilgiler doğruysa onaylamanız yeterli; değişiklik varsa bu numaradan yazabilirsiniz." },
+      { ad: 'Kargoya verildi', metin: 'Merhaba {ad}, {siparis} numaralı siparişiniz kargoya verildi.\n\nKargo firması: {kargo}\nTakip no: {takip_no}\n{takip_link}\n\nİyi günler dileriz.' }
+    ],
     sablonSepet: "Merhaba {ad}, The ZKS'ten ulaşıyoruz.\n\nSepetinizde *{urunler}* kaldı. Siparişinizi kaldığınız yerden tamamlayabilirsiniz:\n{link}\n\nBeden ya da ödeme konusunda yardımcı olabileceğimiz bir şey varsa bu numaradan yazabilirsiniz.",
     sablonSepetKupon: "Merhaba {ad}, The ZKS'ten ulaşıyoruz.\n\nSepetinizdeki ürünler için size özel *%{oran}* indirim kodu tanımladık:\n\nKod: *{kod}*\n(Tek kullanımlık, {bitis} tarihine kadar geçerli)\n\nSiparişinizi buradan tamamlayabilirsiniz:\n{link}\n\nİyi günler dileriz.",
     sablonStok: "Merhaba, The ZKS'ten ulaşıyoruz.\n\nHaber vermemizi istediğiniz *{urun}* modelinin *{beden}* bedeni tekrar stoklarımızda.\n{link}\n\nStoklar sınırlı, dilerseniz hemen sipariş verebilirsiniz. İyi günler dileriz.",
@@ -87,7 +111,7 @@
     sablonFiyat: "Merhaba, The ZKS'ten ulaşıyoruz.\n\nTakip ettiğiniz *{urun}* modelinin fiyatı düştü: ~{eski_fiyat}~ → *{yeni_fiyat}*\n{link}\n\nİyi günler dileriz."
   };
   var AYAR = Object.assign({}, VARSAYILAN);
-  var S = { talepler: [], siparisler: {}, siparisHata: null, sekme: 'stokgeldi', arama: '', yukleniyor: true, hata: null, shopId: null, mesgul: {}, onay: {}, sepetler: [], sepetHata: null, sepetFiltre: 'islem' };
+  var S = { talepler: [], siparisler: {}, siparisHata: null, sekme: 'stokgeldi', arama: '', yukleniyor: true, hata: null, shopId: null, mesgul: {}, onay: {}, sepetler: [], sepetHata: null, sepetFiltre: 'islem', veriGun: 30, donem: 30, kullanilanKodlar: {}, sablonTaslak: null };
 
   /* ---------- yardımcılar ---------- */
   function $(id) { return document.getElementById(id); }
@@ -173,20 +197,22 @@
   async function siparisleriYukle() {
     S.siparisler = {}; S.siparisHata = null;
     // Pencere: son 30 gün, aktif talep daha eskiyse ona kadar (en fazla 90 gün)
-    var enEski = new Date(Date.now() - 30 * 86400000);
+    var enEski = new Date(Date.now() - S.veriGun * 86400000);
     S.talepler.forEach(function (t) { if (t.durum === 'aktif' && t.talepTarihi && t.talepTarihi < enEski) enEski = t.talepTarihi; });
     var sinir = new Date(Date.now() - 90 * 86400000);
     if (enEski < sinir) enEski = sinir;
     var bas = new Date(enEski.getTime() - 86400000).toISOString().slice(0, 10);
-    var q = 'query($q:String!,$after:String){ orders(first:250, after:$after, sortKey:CREATED_AT, reverse:true, query:$q){ pageInfo{ hasNextPage endCursor } nodes{ name createdAt shippingAddress{ phone } billingAddress{ phone } customer{ defaultPhoneNumber{ phoneNumber } } } } }';
+    var q = 'query($q:String!,$after:String){ orders(first:250, after:$after, sortKey:CREATED_AT, reverse:true, query:$q){ pageInfo{ hasNextPage endCursor } nodes{ name createdAt discountCodes shippingAddress{ phone } billingAddress{ phone } customer{ defaultPhoneNumber{ phoneNumber } } } } }';
     var after = null;
     try {
-      for (var i = 0; i < 8; i++) {
+      S.kullanilanKodlar = {};
+      for (var i = 0; i < 20; i++) {
         var j = await gql(q, { q: 'created_at:>=' + bas, after: after });
         if (j.errors) { S.siparisHata = j.errors.map(function (e) { return e.message; }).join('; '); }
         var o = j.data && j.data.orders;
         if (!o) break;
         o.nodes.forEach(function (n) {
+          (n.discountCodes || []).forEach(function (c) { if (c) S.kullanilanKodlar[String(c).toUpperCase()] = { ad: n.name, tarih: new Date(n.createdAt) }; });
           var tels = [n.shippingAddress && n.shippingAddress.phone, n.billingAddress && n.billingAddress.phone, n.customer && n.customer.defaultPhoneNumber && n.customer.defaultPhoneNumber.phoneNumber];
           var gorulen = {};
           tels.forEach(function (x) {
@@ -215,11 +241,11 @@
 
   async function sepetleriYukle() {
     S.sepetHata = null;
-    var bas = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    var bas = new Date(Date.now() - S.veriGun * 86400000).toISOString().slice(0, 10);
     var q = 'query($q:String!,$after:String){ abandonedCheckouts(first:100, after:$after, sortKey:CREATED_AT, reverse:true, query:$q){ pageInfo{ hasNextPage endCursor } nodes{ id createdAt completedAt abandonedCheckoutUrl totalPriceSet{ shopMoney{ amount } } shippingAddress{ firstName lastName phone } billingAddress{ firstName lastName phone } customer{ firstName lastName defaultPhoneNumber{ phoneNumber } defaultEmailAddress{ marketingState } } lineItems(first:10){ nodes{ title quantity variantTitle image{ url } } } } } }';
     var ham = [], after = null;
     try {
-      for (var i = 0; i < 6; i++) {
+      for (var i = 0; i < 15; i++) {
         var j = await gql(q, { q: 'created_at:>=' + bas, after: after });
         if (j.errors) S.sepetHata = j.errors.map(function (e) { return e.message; }).join('; ');
         var a = j.data && j.data.abandonedCheckouts;
@@ -500,7 +526,8 @@
       tamamlanan: T.filter(function (t) { return t.durum !== 'aktif'; }).sort(function (a, b) { return b.guncelleme - a.guncelleme; })
     };
     g.fiyatIslem = g.fiyat.filter(function (t) { var d = fiyatDurum(t); return d.islem; }).length;
-    var sp = S.sepetler.map(function (s) { return { s: s, d: sepetDurum(s) }; }).filter(function (x) { return !x.d.gizli || x.d.mesaj; });
+    var yediGun = Date.now() - 7 * 86400000;
+    var sp = S.sepetler.filter(function (s) { return s.tarih.getTime() >= yediGun; }).map(function (s) { return { s: s, d: sepetDurum(s) }; }).filter(function (x) { return !x.d.gizli || x.d.mesaj; });
     sp.sort(function (a, b) { return b.s.tarih - a.s.tarih; });
     g.sepetHepsi = sp;
     g.sepetIslem = sp.filter(function (x) { return x.d.islem; }).length;
@@ -557,6 +584,143 @@
       '<div class="tel">' + esc(telGoster(s.telefon)) + '</div>' +
       '<div class="rozetler">' + rozet.join('') + '</div></div>' +
       '<div class="sag">' + sag.join('') + '</div></div>';
+  }
+
+  /* ---------- istatistik ---------- */
+  async function donemSec(gunSayisi) {
+    S.donem = gunSayisi;
+    if (gunSayisi > S.veriGun) {
+      S.veriGun = gunSayisi; S.yukleniyor = true; ciz();
+      try { await sepetleriYukle(); await siparisleriYukle(); } catch (e) { S.hata = e.message; }
+      S.yukleniyor = false;
+    }
+    ciz();
+  }
+  function yuzde(a, b) { return b ? '%' + Math.round(a * 100 / b) : '-'; }
+  function kpi(deger, etiket, alt, vurgu) {
+    return '<div class="kpi' + (vurgu ? ' vurgu' : '') + '"><b>' + deger + '</b><span>' + etiket + '</span>' + (alt ? '<small>' + alt + '</small>' : '') + '</div>';
+  }
+  function kovaBas(d, gunluk) {
+    var t = new Date(d.getTime() + 3 * 3600000); // İstanbul
+    var g = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()));
+    if (!gunluk) { var gun = (g.getUTCDay() + 6) % 7; g = new Date(g.getTime() - gun * 86400000); } // pazartesi
+    return g.getTime();
+  }
+  function kovalar(gunSayisi) {
+    var gunluk = gunSayisi <= 14, l = [], son = kovaBas(new Date(), gunluk), adim = (gunluk ? 1 : 7) * 86400000;
+    var bas = kovaBas(new Date(Date.now() - (gunSayisi - 1) * 86400000), gunluk);
+    for (var k = bas; k <= son; k += adim) {
+      var dt = new Date(k);
+      l.push({ k: k, etiket: dt.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', timeZone: 'UTC' }) + (gunluk ? '' : ' haftası'), kisa: dt.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', timeZone: 'UTC' }), d: [0, 0, 0] });
+    }
+    return { gunluk: gunluk, l: l };
+  }
+  function kovaya(kv, tarihD, idx) {
+    if (!tarihD) return;
+    var k = kovaBas(tarihD, kv.gunluk);
+    for (var i = 0; i < kv.l.length; i++) if (kv.l[i].k === k) { kv.l[i].d[idx]++; return; }
+  }
+  function grafikHTML(kv, adlar) {
+    var W = 1000, H = 200, pl = 34, pr = 8, pt = 10, pb = 26, n = kv.l.length || 1;
+    var mx = 0; kv.l.forEach(function (x) { x.d.forEach(function (v) { if (v > mx) mx = v; }); });
+    var adim = mx <= 4 ? 1 : Math.ceil(mx / 4 / (mx > 20 ? 5 : 1)) * (mx > 20 ? 5 : 1);
+    var ust = Math.max(adim * Math.ceil(mx / adim), 1);
+    var cw = W - pl - pr, ch = H - pt - pb, gw = cw / n;
+    var bw = Math.max(3, Math.min(16, (gw - 8) / 3 - 2));
+    var y = function (v) { return pt + ch - (v / ust) * ch; };
+    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(adlar.join(', ')) + '">';
+    for (var t = 0; t <= ust; t += adim) {
+      s += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y(t) + '" y2="' + y(t) + '" stroke="#ececec" stroke-width="1"/>';
+      s += '<text x="' + (pl - 6) + '" y="' + (y(t) + 3.5) + '" text-anchor="end">' + t + '</text>';
+    }
+    var her = Math.ceil(n / 13);
+    kv.l.forEach(function (x, i) {
+      var gx = pl + i * gw + (gw - (bw * 3 + 4)) / 2;
+      x.d.forEach(function (v, si) {
+        var bx = gx + si * (bw + 2);
+        var renk = ['var(--s1)', 'var(--s2)', 'var(--s3)'][si];
+        var baslik = esc(x.etiket + ' · ' + adlar[si] + ': ' + v);
+        // geniş, görünmez dokunma alanı + çubuk
+        s += '<g><title>' + baslik + '</title><rect x="' + bx + '" y="' + pt + '" width="' + bw + '" height="' + ch + '" fill="transparent"/>';
+        if (v > 0) {
+          var yy = y(v), r = Math.min(4, bw / 2, (pt + ch - yy));
+          s += '<path d="M' + bx + ',' + (pt + ch) + ' L' + bx + ',' + (yy + r) + ' Q' + bx + ',' + yy + ' ' + (bx + r) + ',' + yy + ' L' + (bx + bw - r) + ',' + yy + ' Q' + (bx + bw) + ',' + yy + ' ' + (bx + bw) + ',' + (yy + r) + ' L' + (bx + bw) + ',' + (pt + ch) + ' Z" fill="' + renk + '"/>';
+        }
+        s += '</g>';
+      });
+      if (i % her === 0) s += '<text x="' + (pl + i * gw + gw / 2) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(x.kisa) + '</text>';
+    });
+    s += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + (pt + ch) + '" y2="' + (pt + ch) + '" stroke="#cfcfcf" stroke-width="1"/></svg>';
+    var lej = '<div class="lejant">' + adlar.map(function (a, i) { return '<span><i style="background:var(--s' + (i + 1) + ')"></i>' + esc(a) + '</span>'; }).join('') + '</div>';
+    var tablo = '<details><summary>Tabloyu göster</summary><table><tr><th>' + (kv.gunluk ? 'Gün' : 'Hafta') + '</th>' + adlar.map(function (a) { return '<th>' + esc(a) + '</th>'; }).join('') + '</tr>' +
+      kv.l.map(function (x) { return '<tr><td>' + esc(x.etiket) + '</td>' + x.d.map(function (v) { return '<td>' + v + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></details>';
+    return lej + '<div class="grafik">' + s + '</div>' + tablo;
+  }
+
+  function istatistikHTML() {
+    var P = S.donem, sinir = Date.now() - P * 86400000;
+    var icinde = function (d) { return d && d.getTime() >= sinir; };
+    var don = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:14px;flex-wrap:wrap"><span class="bilgi-kutu" style="margin:0 6px 0 0">Dönem:</span>' +
+      [7, 30, 90].map(function (g) { return '<button class="btn btn-kucuk' + (S.donem === g ? ' btn-ana' : '') + '" data-donem="' + g + '">Son ' + g + ' gün</button>'; }).join('') +
+      '<span class="bilgi-kutu" style="margin:0 0 0 8px">Grafikler talebin geldiği ' + (P <= 14 ? 'güne' : 'haftaya') + ' göre gruplanır: o dönemde gelen taleplerden kaçına dönüldüğünü ve kaçının siparişe döndüğünü gösterir.</span></div>';
+
+    // STOK
+    var st = S.talepler.filter(function (t) { return t.tip === 'stok' && icinde(t.talepTarihi); });
+    var stBild = st.filter(function (t) { return t.stokBildirim; });
+    var stSip = stBild.filter(function (t) { return siparisBul(t, t.stokBildirim); });
+    var stBekStokta = st.filter(function (t) { return t.durum === 'aktif' && t.stokta; });
+    var stBek = st.filter(function (t) { return t.durum === 'aktif' && !t.stokta; });
+    var stKendi = st.filter(function (t) { return !t.stokBildirim && siparisBul(t); });
+    var kv1 = kovalar(P);
+    st.forEach(function (t) { kovaya(kv1, t.talepTarihi, 0); if (t.stokBildirim) kovaya(kv1, t.talepTarihi, 1); if (t.stokBildirim && siparisBul(t, t.stokBildirim)) kovaya(kv1, t.talepTarihi, 2); });
+    var k1 = '<div class="ist-kart"><h2>Stok talepleri</h2><div class="kpi-grid">' +
+      kpi(st.length, 'Talep') +
+      kpi(stBild.length, 'Bildirim gönderildi', yuzde(stBild.length, st.length) + ' talebe dönüldü') +
+      kpi(stSip.length, 'Bildirimden sonra sipariş', 'Dönüşüm ' + yuzde(stSip.length, stBild.length), true) +
+      kpi(stBekStokta.length, 'Stokta, bildirim bekliyor') +
+      kpi(stBek.length, 'Stok bekleniyor') +
+      kpi(stKendi.length, 'Bildirimsiz sipariş', 'Talepten sonra kendisi aldı') +
+      '</div>' + grafikHTML(kv1, ['Talep', 'Bildirim gönderildi', 'Siparişe döndü']) + '</div>';
+
+    // FİYAT
+    var fy = S.talepler.filter(function (t) { return t.tip === 'fiyat' && icinde(t.talepTarihi); });
+    var fyKupon = fy.filter(function (t) { return t.kuponTarih; });
+    var fyFiyat = fy.filter(function (t) { return t.fiyatBildirim; });
+    var fyDonus = fy.filter(function (t) { return t.kuponTarih || t.fiyatBildirim; });
+    var fySip = fy.filter(function (t) { return siparisBul(t); });
+    var fySipDonus = fyDonus.filter(function (t) { var g = [t.kuponTarih, t.fiyatBildirim].filter(Boolean).sort(function (a, b) { return a - b; })[0]; return siparisBul(t, g); });
+    var fyKul = fyKupon.filter(function (t) { return t.kod && S.kullanilanKodlar[t.kod.toUpperCase()]; });
+    var kv2 = kovalar(P);
+    fy.forEach(function (t) { kovaya(kv2, t.talepTarihi, 0); if (t.kuponTarih || t.fiyatBildirim) kovaya(kv2, t.talepTarihi, 1); if (siparisBul(t)) kovaya(kv2, t.talepTarihi, 2); });
+    var k2 = '<div class="ist-kart"><h2>Fiyat alarmları</h2><div class="kpi-grid">' +
+      kpi(fy.length, 'Alarm') +
+      kpi(fyDonus.length, 'Dönüş yapıldı', 'Kupon ' + fyKupon.length + ' · fiyat düştü ' + fyFiyat.length) +
+      kpi(fySip.length, 'Talepten sonra sipariş', 'Dönüşüm ' + yuzde(fySip.length, fy.length), true) +
+      kpi(fySipDonus.length, 'Dönüşten sonra sipariş', yuzde(fySipDonus.length, fyDonus.length) + ' / dönülenler') +
+      kpi(fyKul.length, 'Kupon kullanıldı', 'Kullanım ' + yuzde(fyKul.length, fyKupon.length)) +
+      '</div>' + grafikHTML(kv2, ['Alarm', 'Dönüş yapıldı', 'Siparişe döndü']) + '</div>';
+
+    // YARIM KALAN ÖDEMELER
+    var sp = S.sepetler.filter(function (s) { return icinde(s.tarih); }).map(function (s) { return { s: s, d: sepetDurum(s) }; });
+    var spHat = sp.filter(function (x) { return x.d.mesaj; });
+    var spHatSip = sp.filter(function (x) { return x.d.hatirlatmaSonrasi; });
+    var spKendi = sp.filter(function (x) { return x.d.donustu && !x.d.hatirlatmaSonrasi; });
+    var spKupon = sp.filter(function (x) { return x.d.kupon; });
+    var spKul = spKupon.filter(function (x) { return x.d.kod && S.kullanilanKodlar[x.d.kod.toUpperCase()]; });
+    var kurtarilan = spHatSip.reduce(function (t, x) { return t + (x.s.tutar || 0); }, 0);
+    var kv3 = kovalar(P);
+    sp.forEach(function (x) { kovaya(kv3, x.s.tarih, 0); if (x.d.mesaj) kovaya(kv3, x.s.tarih, 1); if (x.d.hatirlatmaSonrasi) kovaya(kv3, x.s.tarih, 2); });
+    var k3 = '<div class="ist-kart"><h2>Yarım kalan ödemeler</h2><div class="kpi-grid">' +
+      kpi(sp.length, 'Yarım kalan', 'Müşteri bazında') +
+      kpi(spHat.length, 'Hatırlatma gönderildi', yuzde(spHat.length, sp.length) + ' müşteriye dönüldü') +
+      kpi(spHatSip.length, 'Hatırlatmadan sonra sipariş', 'Dönüşüm ' + yuzde(spHatSip.length, spHat.length), true) +
+      kpi(tl(kurtarilan), 'Kurtarılan sepet tutarı', 'Hatırlatma sonrası dönenler') +
+      kpi(spKupon.length, 'Kupon gönderildi', 'Kullanılan ' + spKul.length) +
+      kpi(spKendi.length, 'Hatırlatmasız sipariş', 'Kendisi tamamladı') +
+      '</div>' + grafikHTML(kv3, ['Yarım kalan', 'Hatırlatma gönderildi', 'Siparişe döndü']) + '</div>';
+
+    var not = '<div class="bilgi-kutu">Sipariş eşleşmesi telefon numarasıyla yapılır (son ' + S.veriGun + ' günün siparişleri). Shopify yarım kalan ödemeleri en fazla birkaç ay saklar.</div>';
+    return '<div class="ist">' + don + k1 + k2 + k3 + not + '</div>';
   }
 
   function sepetSekmesiHTML(g) {
@@ -677,6 +841,7 @@
       ['sepet', 'Yarım kalan ödemeler', null, false, g.sepetIslem],
       ['stokbekleyen', 'Stok bekleyen', g.stokbekleyen.length],
       ['tamamlanan', 'Tamamlanan', g.tamamlanan.length],
+      ['istatistik', 'İstatistik'],
       ['ayarlar', 'Ayarlar']
     ];
     $('zksSekmeler').innerHTML = tanim.map(function (x) {
@@ -704,6 +869,7 @@
     if (S.yukleniyor) { ic.innerHTML = '<div class="yukleniyor">Talepler yükleniyor…</div>'; return; }
     if (S.sekme === 'ayarlar') { ic.innerHTML = ayarHTML(); return; }
     if (S.sekme === 'sepet') { ic.innerHTML = sepetSekmesiHTML(g); return; }
+    if (S.sekme === 'istatistik') { ic.innerHTML = istatistikHTML(); return; }
     var l = filtre(g[S.sekme] || []);
     var acik = '<div class="bilgi-kutu">' + esc(ACIKLAMA[S.sekme].replace('{saat}', AYAR.kuponBeklemeSaat)) + '</div>';
     ic.innerHTML = acik + (l.length ? l.map(function (t) { return satirHTML(t, S.sekme); }).join('') : '<div class="bos">Bu sekmede talep yok.</div>');
@@ -729,12 +895,38 @@
       '<label>Hatırlatma mesajı</label><textarea id="aSepet">' + esc(AYAR.sablonSepet) + '</textarea>' +
       '<label>Sepet kupon mesajı</label><textarea id="aSepetKupon">' + esc(AYAR.sablonSepetKupon) + '</textarea>' +
       '<div class="ipucu">Kullanılabilir alanlar: {ad} {urunler} {link} {tutar} {oran} {kod} {bitis}. Kupon geçerlilik süresi yukarıdaki ayarla aynıdır.</div>' +
+      siparisSablonHTML() +
       '<div style="margin-top:16px;display:flex;gap:8px"><button class="btn btn-ana" data-aksiyon="ayar-kaydet">Kaydet</button><button class="btn" data-aksiyon="ayar-varsayilan">Varsayılana dön</button></div>' +
       '</div>';
   }
 
+  function siparisSablonHTML() {
+    if (!S.sablonTaslak) S.sablonTaslak = JSON.parse(JSON.stringify(AYAR.siparisSablonlari || VARSAYILAN.siparisSablonlari));
+    return '<h3 style="margin:26px 0 0;font-size:15px">Sipariş sayfası WhatsApp şablonları</h3>' +
+      '<div class="ipucu">Sipariş detay sayfasındaki "WhatsApp" kutusunda bu sırayla listelenir. Adı "Kargoya verildi" olan şablon kargolanan siparişlerde, "Kapıda ödeme teyidi" kapıda ödemeli siparişlerde otomatik seçilir.</div>' +
+      S.sablonTaslak.map(function (s, i) {
+        return '<div class="sb-satir" style="border:1px solid var(--cizgi);border-radius:10px;padding:10px 12px;margin-top:10px">' +
+          '<div style="display:flex;gap:8px;align-items:center"><input class="sb-ad" type="text" value="' + esc(s.ad) + '" style="flex:1;border:1px solid #cfcfcf;border-radius:8px;padding:7px 10px;font-size:13.5px;font-weight:600">' +
+          '<button class="btn btn-kucuk" data-aksiyon="sablon-yukari" data-i="' + i + '"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+          '<button class="btn btn-kucuk" data-aksiyon="sablon-sil" data-i="' + i + '">Sil</button></div>' +
+          '<textarea class="sb-metin" style="margin-top:8px;min-height:110px">' + esc(s.metin) + '</textarea></div>';
+      }).join('') +
+      '<div style="margin-top:10px"><button class="btn btn-kucuk" data-aksiyon="sablon-ekle">+ Şablon ekle</button></div>' +
+      '<div class="ipucu">Kullanılabilir alanlar: {ad} {siparis} {tutar} {adres} {kargo} {takip_no} {takip_link}. Boş kalan "Kargo firması:" / "Takip no:" satırları mesajdan otomatik silinir.</div>';
+  }
+  function sablonTaslakOku() {
+    var l = [];
+    document.querySelectorAll('.sb-satir').forEach(function (el) {
+      l.push({ ad: el.querySelector('.sb-ad').value.trim(), metin: el.querySelector('.sb-metin').value });
+    });
+    S.sablonTaslak = l;
+    return l;
+  }
+
   async function ayarKaydet(varsayilan) {
-    var yeni = varsayilan ? Object.assign({}, VARSAYILAN) : {
+    var sablonlar = varsayilan ? null : sablonTaslakOku().filter(function (s) { return s.ad && s.metin.trim(); });
+    var yeni = varsayilan ? Object.assign({}, VARSAYILAN) : Object.assign({}, AYAR, {
+      siparisSablonlari: sablonlar.length ? sablonlar : VARSAYILAN.siparisSablonlari,
       kuponOran: Math.max(1, Math.min(90, parseInt($('aOran').value, 10) || VARSAYILAN.kuponOran)),
       kuponGun: Math.max(1, Math.min(90, parseInt($('aGun').value, 10) || VARSAYILAN.kuponGun)),
       kuponBeklemeSaat: Math.max(0, Math.min(720, parseInt($('aBekle').value, 10) || 0)),
@@ -743,26 +935,36 @@
       sepetGizleDk: Math.max(0, Math.min(1440, parseInt($('aSGizle').value, 10) || 0)),
       sablonSepet: $('aSepet').value, sablonSepetKupon: $('aSepetKupon').value,
       sablonStok: $('aStok').value, sablonKupon: $('aKupon').value, sablonFiyat: $('aFiyat').value
-    };
+    });
     try {
       var j = await gql('mutation($m:[MetafieldsSetInput!]!){ metafieldsSet(metafields:$m){ userErrors{ field message } } }', { m: [{ ownerId: S.shopId, namespace: 'zks_app', key: 'bildirim_ayarlar', type: 'json', value: JSON.stringify(yeni) }] });
       var ue = j.data.metafieldsSet.userErrors;
       if (ue && ue.length) throw new Error(ue.map(function (e) { return e.message; }).join('; '));
-      AYAR = yeni; bildir('Ayarlar kaydedildi'); ciz();
+      AYAR = yeni; S.sablonTaslak = null; bildir('Ayarlar kaydedildi'); ciz();
     } catch (e) { bildir('Ayarlar kaydedilemedi: ' + e.message, true); }
   }
 
   /* ---------- olaylar ---------- */
   $('zksSekmeler').addEventListener('click', function (e) {
     var b = e.target.closest('[data-sekme]'); if (!b) return;
-    S.sekme = b.getAttribute('data-sekme'); ciz();
+    S.sekme = b.getAttribute('data-sekme'); S.sablonTaslak = null; ciz();
   });
   $('zksIcerik').addEventListener('click', function (e) {
     var hf = e.target.closest('[data-sepetfiltre]');
     if (hf) { S.sepetFiltre = hf.getAttribute('data-sepetfiltre'); ciz(); return; }
+    var dn = e.target.closest('[data-donem]');
+    if (dn) { donemSec(parseInt(dn.getAttribute('data-donem'), 10)); return; }
     var b = e.target.closest('[data-aksiyon]'); if (!b) return;
     var ad = b.getAttribute('data-aksiyon');
     if (ad === 'ayar-kaydet') { ayarKaydet(false); return; }
+    if (ad === 'sablon-ekle' || ad === 'sablon-sil' || ad === 'sablon-yukari') {
+      var l = sablonTaslakOku(), i = parseInt(b.getAttribute('data-i'), 10);
+      if (ad === 'sablon-ekle') l.push({ ad: 'Yeni şablon', metin: 'Merhaba {ad}, {siparis} numaralı siparişiniz hakkında…' });
+      if (ad === 'sablon-sil') l.splice(i, 1);
+      if (ad === 'sablon-yukari' && i > 0) { var x = l[i]; l[i] = l[i - 1]; l[i - 1] = x; }
+      ciz(); return;
+    }
+
     if (ad === 'ayar-varsayilan') { ayarKaydet(true); return; }
     if (b.hasAttribute('data-sid')) {
       var s = S.sepetler.find(function (x) { return x.id === b.getAttribute('data-sid'); });
