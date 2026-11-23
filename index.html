@@ -15,20 +15,30 @@
 <div id="zks-yukleniyor">ZKS Bildirim Merkezi yükleniyor…</div>
 <script>
 /* ZKS Bildirim Merkezi - başlatıcı
-   Bu dosya değişmez. Panelin asıl kodu Shopify'da mağaza ayarında durur:
+   Panelin asıl kodu bu depodaki panel.html dosyasındadır.
+   panel.html okunamazsa Shopify'daki yedek kopya kullanılır:
    shop metafield  zks_app.bildirim_merkezi_html  */
 (async function () {
   var el = document.getElementById('zks-yukleniyor');
   try {
     if (window.top === window.self) throw new Error('Bu sayfa Shopify Admin içinden açılmalı.');
-    var r = await fetch('shopify:admin/api/2025-10/graphql.json', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: '{ shop { metafield(namespace: "zks_app", key: "bildirim_merkezi_html") { value } } }' })
-    });
-    var j = await r.json();
-    var html = j && j.data && j.data.shop && j.data.shop.metafield && j.data.shop.metafield.value;
-    if (!html) throw new Error('Panel kodu bulunamadı (' + JSON.stringify(j.errors || j).slice(0, 200) + ')');
+    var html = null;
+    // 1) Panel kodu bu depodaki panel.html dosyasından okunur
+    try {
+      var pr = await fetch('panel.html?t=' + Date.now(), { cache: 'no-store' });
+      if (pr.ok) html = await pr.text();
+    } catch (e) { console.warn('panel.html okunamadi, yedege geciliyor', e); }
+    // 2) Yedek: Shopify mağaza ayarındaki kopya (zks_app.bildirim_merkezi_html)
+    if (!html) {
+      var r = await fetch('shopify:admin/api/2025-10/graphql.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: '{ shop { metafield(namespace: "zks_app", key: "bildirim_merkezi_html") { value } } }' })
+      });
+      var j = await r.json();
+      html = j && j.data && j.data.shop && j.data.shop.metafield && j.data.shop.metafield.value;
+      if (!html) throw new Error('Panel kodu bulunamadı (' + JSON.stringify(j.errors || j).slice(0, 200) + ')');
+    }
     var doc = new DOMParser().parseFromString(html, 'text/html');
     if (doc.title) document.title = doc.title;
     [].slice.call(doc.head.querySelectorAll('style, link[rel="stylesheet"]')).forEach(function (n) { document.head.appendChild(n); });
