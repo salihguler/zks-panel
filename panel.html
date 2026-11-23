@@ -58,7 +58,7 @@
   .ist{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a}
   .ist-kart{background:#fff;border-radius:12px;padding:16px 18px;margin-bottom:14px;box-shadow:0 1px 0 rgba(0,0,0,.06)}
   .ist-kart h2{font-size:15px;margin:0 0 12px}
-  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px;margin-bottom:14px}
   .kpi{border:1px solid var(--cizgi);border-radius:10px;padding:10px 12px}
   .kpi b{font-size:22px;display:block;line-height:1.2;font-weight:650}
   .kpi span{color:var(--soluk);font-size:12px}
@@ -73,6 +73,7 @@
   .ist table{border-collapse:collapse;margin-top:6px;font-size:12.5px}
   .ist td,.ist th{padding:4px 10px;border-bottom:1px solid var(--cizgi);text-align:right}
   .ist td:first-child,.ist th:first-child{text-align:left}
+  .ist table.kirilim td{vertical-align:middle}
 </style>
 </head>
 <body>
@@ -111,7 +112,7 @@
     sablonFiyat: "Merhaba, The ZKS'ten ulaşıyoruz.\n\nTakip ettiğiniz *{urun}* modelinin fiyatı düştü: ~{eski_fiyat}~ → *{yeni_fiyat}*\n{link}\n\nİyi günler dileriz."
   };
   var AYAR = Object.assign({}, VARSAYILAN);
-  var S = { talepler: [], siparisler: {}, siparisHata: null, sekme: 'stokgeldi', arama: '', yukleniyor: true, hata: null, shopId: null, mesgul: {}, onay: {}, sepetler: [], sepetHata: null, sepetFiltre: 'islem', veriGun: 30, donem: 30, kullanilanKodlar: {}, sablonTaslak: null };
+  var S = { talepler: [], siparisler: {}, siparisHata: null, sekme: 'stokgeldi', arama: '', yukleniyor: true, hata: null, shopId: null, mesgul: {}, onay: {}, sepetler: [], sepetHata: null, sepetFiltre: 'islem', istBolum: 'stok', istTum: {}, veriGun: 30, donem: 30, kullanilanKodlar: {}, sablonTaslak: null };
 
   /* ---------- yardımcılar ---------- */
   function $(id) { return document.getElementById(id); }
@@ -144,7 +145,7 @@
   }
 
   /* ---------- veri ---------- */
-  var Q_TALEPLER = 'query($after:String){ metaobjects(type:"zks_bildirim_talebi", first:100, after:$after, sortKey:"updated_at", reverse:true){ pageInfo{ hasNextPage endCursor } nodes{ id updatedAt fields{ key value reference{ __typename ... on Product{ id title handle totalInventory featuredMedia{ preview{ image{ url } } } priceRangeV2{ minVariantPrice{ amount } } } ... on ProductVariant{ id title price inventoryQuantity availableForSale } } } } } }';
+  var Q_TALEPLER = 'query($after:String){ metaobjects(type:"zks_bildirim_talebi", first:100, after:$after, sortKey:"updated_at", reverse:true){ pageInfo{ hasNextPage endCursor } nodes{ id updatedAt fields{ key value reference{ __typename ... on Product{ id title handle totalInventory featuredMedia{ preview{ image{ url } } } priceRangeV2{ minVariantPrice{ amount } } } ... on ProductVariant{ id title sku price inventoryQuantity availableForSale } } } } } }';
 
   function talepCoz(n) {
     var f = {}, ref = {};
@@ -242,7 +243,7 @@
   async function sepetleriYukle() {
     S.sepetHata = null;
     var bas = new Date(Date.now() - S.veriGun * 86400000).toISOString().slice(0, 10);
-    var q = 'query($q:String!,$after:String){ abandonedCheckouts(first:100, after:$after, sortKey:CREATED_AT, reverse:true, query:$q){ pageInfo{ hasNextPage endCursor } nodes{ id createdAt completedAt abandonedCheckoutUrl totalPriceSet{ shopMoney{ amount } } shippingAddress{ firstName lastName phone } billingAddress{ firstName lastName phone } customer{ firstName lastName defaultPhoneNumber{ phoneNumber } defaultEmailAddress{ marketingState } } lineItems(first:10){ nodes{ title quantity variantTitle image{ url } } } } } }';
+    var q = 'query($q:String!,$after:String){ abandonedCheckouts(first:100, after:$after, sortKey:CREATED_AT, reverse:true, query:$q){ pageInfo{ hasNextPage endCursor } nodes{ id createdAt completedAt abandonedCheckoutUrl totalPriceSet{ shopMoney{ amount } } shippingAddress{ firstName lastName phone } billingAddress{ firstName lastName phone } customer{ firstName lastName defaultPhoneNumber{ phoneNumber } defaultEmailAddress{ marketingState } } lineItems(first:10){ nodes{ title quantity variantTitle sku image{ url } product{ id handle } variant{ id inventoryQuantity selectedOptions{ name value } } } } } } }';
     var ham = [], after = null;
     try {
       for (var i = 0; i < 15; i++) {
@@ -351,7 +352,9 @@
   }
   function sepetMesaj(sablon, s, ek) {
     var d = sepetDurum(s);
-    var v = Object.assign({ ad: s.ad || '', urunler: urunMetni(s), link: s.link, oran: AYAR.sepetKuponOran, kod: d.kod, bitis: d.kuponBitis ? gun(d.kuponBitis) : '', tutar: tl(s.tutar) }, ek || {});
+    var yol = '/';
+    try { var u = new URL(s.link); yol = u.pathname + u.search; } catch (e) {}
+    var v = Object.assign({ ad: s.ad || '', urunler: urunMetni(s), link: d.kod ? indirimLink(d.kod, yol) : s.link, oran: AYAR.sepetKuponOran, kod: d.kod, bitis: d.kuponBitis ? gun(d.kuponBitis) : '', tutar: tl(s.tutar) }, ek || {});
     return String(sablon).replace(/\{(\w+)\}/g, function (m, k) { return v[k] != null ? v[k] : m; }).replace(/Merhaba ,/, 'Merhaba,');
   }
 
@@ -379,11 +382,14 @@
     var dom = /^thezks\.(com|co)$/.test(t.kaynak) ? t.kaynak : 'thezks.com';
     return 'https://' + dom + '/products/' + t.urun.handle + (t.varyant ? '?variant=' + numId(t.varyant.id) : '');
   }
+  // Kodu sepete otomatik uygulayan Shopify indirim linki
+  function indirimLink(kod, yol) { return 'https://thezks.com/discount/' + encodeURIComponent(kod) + '?redirect=' + encodeURIComponent(yol || '/'); }
+  function urunYol(t) { return t.urun ? '/products/' + t.urun.handle + (t.varyant ? '?variant=' + numId(t.varyant.id) : '') : '/'; }
   function doldur(sablon, t, ek) {
     var v = Object.assign({
       urun: t.urun ? t.urun.title : 'ürün',
       beden: t.beden || (t.varyant ? t.varyant.title : ''),
-      link: urunLink(t),
+      link: t.kod ? indirimLink(t.kod, urunYol(t)) : urunLink(t),
       oran: AYAR.kuponOran,
       kod: t.kod,
       bitis: t.kuponBitis ? gun(t.kuponBitis) : '',
@@ -657,70 +663,158 @@
     return lej + '<div class="grafik">' + s + '</div>' + tablo;
   }
 
+  function bedenAl(opts, yedek) {
+    var o = (opts || []).find(function (x) { return /beden|size|boyut/i.test(x.name); });
+    if (o) return o.value;
+    var p = String(yedek || '').split('/').map(function (x) { return x.trim(); });
+    return p[p.length - 1] || '-';
+  }
+  function resimUrl(u) { return u ? u + (u.indexOf('?') > -1 ? '&' : '?') + 'width=80' : ''; }
+  function urunHucre(r) {
+    return '<td style="text-align:left"><div style="display:flex;gap:8px;align-items:center">' +
+      (r.resim ? '<img src="' + esc(resimUrl(r.resim)) + '" alt="" style="width:30px;height:38px;object-fit:cover;border-radius:4px;flex:0 0 auto">' : '') +
+      '<div><div style="font-weight:600;max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(r.baslik) + '</div>' +
+      (r.sku ? '<div style="color:#888;font-size:11.5px">' + esc(r.sku) + '</div>' : '') + '</div></div></td>';
+  }
+  function kirilimTablo(bolum, baslik, aciklama, sutunlar, satirlar) {
+    var tum = S.istTum[bolum], gos = tum ? satirlar : satirlar.slice(0, 25);
+    var s = '<h2 style="margin-top:22px">' + esc(baslik) + '</h2><div class="bilgi-kutu">' + esc(aciklama) + '</div>';
+    if (!satirlar.length) return s + '<div class="bos">Bu dönemde kayıt yok.</div>';
+    s += '<div style="overflow-x:auto"><table class="kirilim" style="width:100%"><tr>' + sutunlar.map(function (c, i) { return '<th' + (i === 0 ? ' style="text-align:left"' : '') + '>' + esc(c) + '</th>'; }).join('') + '</tr>' +
+      gos.map(function (r) { return '<tr>' + urunHucre(r) + r.h.map(function (v) { return '<td>' + v + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>';
+    if (satirlar.length > 25) s += '<div style="margin-top:8px"><button class="btn btn-kucuk" data-isttum="' + bolum + '">' + (tum ? 'Daha az göster' : 'Tümünü göster (' + satirlar.length + ')') + '</button></div>';
+    return s;
+  }
+  function aramaUygun(r) {
+    var a = S.arama.trim().toLocaleLowerCase('tr');
+    if (!a) return true;
+    return (r.baslik || '').toLocaleLowerCase('tr').indexOf(a) > -1 || (r.sku || '').toLocaleLowerCase('tr').indexOf(a) > -1;
+  }
+
   function istatistikHTML() {
     var P = S.donem, sinir = Date.now() - P * 86400000;
     var icinde = function (d) { return d && d.getTime() >= sinir; };
-    var don = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:14px;flex-wrap:wrap"><span class="bilgi-kutu" style="margin:0 6px 0 0">Dönem:</span>' +
-      [7, 30, 90].map(function (g) { return '<button class="btn btn-kucuk' + (S.donem === g ? ' btn-ana' : '') + '" data-donem="' + g + '">Son ' + g + ' gün</button>'; }).join('') +
-      '<span class="bilgi-kutu" style="margin:0 0 0 8px">Grafikler talebin geldiği ' + (P <= 14 ? 'güne' : 'haftaya') + ' göre gruplanır: o dönemde gelen taleplerden kaçına dönüldüğünü ve kaçının siparişe döndüğünü gösterir.</span></div>';
+    var ust = '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+      [['stok', 'Stok talepleri'], ['fiyat', 'Fiyat alarmları'], ['sepet', 'Yarım kalan ödemeler']].map(function (b) {
+        return '<button class="btn' + (S.istBolum === b[0] ? ' btn-ana' : '') + '" data-istbolum="' + b[0] + '">' + b[1] + '</button>';
+      }).join('') + '<span style="flex:1"></span><span class="bilgi-kutu" style="margin:0 4px 0 0">Dönem:</span>' +
+      [7, 30, 90].map(function (g) { return '<button class="btn btn-kucuk' + (S.donem === g ? ' btn-ana' : '') + '" data-donem="' + g + '">Son ' + g + ' gün</button>'; }).join('') + '</div>' +
+      '<div class="bilgi-kutu">Grafik, talebin geldiği ' + (P <= 14 ? 'güne' : 'haftaya') + ' göre gruplanır: o dönemde gelen taleplerden kaçına dönüldüğünü ve kaçının siparişe döndüğünü gösterir. Ürün tablosu üstteki arama kutusuyla (ürün adı veya kodu) süzülebilir.</div>';
+    var govde = '';
 
-    // STOK
-    var st = S.talepler.filter(function (t) { return t.tip === 'stok' && icinde(t.talepTarihi); });
-    var stBild = st.filter(function (t) { return t.stokBildirim; });
-    var stSip = stBild.filter(function (t) { return siparisBul(t, t.stokBildirim); });
-    var stBekStokta = st.filter(function (t) { return t.durum === 'aktif' && t.stokta; });
-    var stBek = st.filter(function (t) { return t.durum === 'aktif' && !t.stokta; });
-    var stKendi = st.filter(function (t) { return !t.stokBildirim && siparisBul(t); });
-    var kv1 = kovalar(P);
-    st.forEach(function (t) { kovaya(kv1, t.talepTarihi, 0); if (t.stokBildirim) kovaya(kv1, t.talepTarihi, 1); if (t.stokBildirim && siparisBul(t, t.stokBildirim)) kovaya(kv1, t.talepTarihi, 2); });
-    var k1 = '<div class="ist-kart"><h2>Stok talepleri</h2><div class="kpi-grid">' +
-      kpi(st.length, 'Talep') +
-      kpi(stBild.length, 'Bildirim gönderildi', yuzde(stBild.length, st.length) + ' talebe dönüldü') +
-      kpi(stSip.length, 'Bildirimden sonra sipariş', 'Dönüşüm ' + yuzde(stSip.length, stBild.length), true) +
-      kpi(stBekStokta.length, 'Stokta, bildirim bekliyor') +
-      kpi(stBek.length, 'Stok bekleniyor') +
-      kpi(stKendi.length, 'Bildirimsiz sipariş', 'Talepten sonra kendisi aldı') +
-      '</div>' + grafikHTML(kv1, ['Talep', 'Bildirim gönderildi', 'Siparişe döndü']) + '</div>';
+    if (S.istBolum === 'stok') {
+      var st = S.talepler.filter(function (t) { return t.tip === 'stok' && icinde(t.talepTarihi); });
+      var stBild = st.filter(function (t) { return t.stokBildirim; });
+      var stSip = stBild.filter(function (t) { return siparisBul(t, t.stokBildirim); });
+      var stBekStokta = st.filter(function (t) { return t.durum === 'aktif' && t.stokta; });
+      var stBek = st.filter(function (t) { return t.durum === 'aktif' && !t.stokta; });
+      var stKendi = st.filter(function (t) { return !t.stokBildirim && siparisBul(t); });
+      var kv1 = kovalar(P);
+      st.forEach(function (t) { kovaya(kv1, t.talepTarihi, 0); if (t.stokBildirim) kovaya(kv1, t.talepTarihi, 1); if (t.stokBildirim && siparisBul(t, t.stokBildirim)) kovaya(kv1, t.talepTarihi, 2); });
+      var gr = {};
+      st.forEach(function (t) {
+        var k = (t.urun ? t.urun.id : 'x') + '|' + (t.varyant ? t.varyant.id : t.beden);
+        var r = gr[k] = gr[k] || { baslik: t.urun ? t.urun.title : '(ürün silinmiş)', sku: t.varyant ? t.varyant.sku : '', resim: t.urun && t.urun.featuredMedia && t.urun.featuredMedia.preview && t.urun.featuredMedia.preview.image ? t.urun.featuredMedia.preview.image.url : '', beden: t.beden || (t.varyant ? t.varyant.title : '-'), stok: t.varyant ? t.varyant.inventoryQuantity : null, n: 0, bek: 0, hazir: 0, bild: 0, sip: 0 };
+        r.n++;
+        if (t.durum === 'aktif' && !t.stokta) r.bek++;
+        if (t.durum === 'aktif' && t.stokta) r.hazir++;
+        if (t.stokBildirim) { r.bild++; if (siparisBul(t, t.stokBildirim)) r.sip++; }
+      });
+      var rows = Object.keys(gr).map(function (k) { return gr[k]; }).filter(aramaUygun).sort(function (a, b) { return b.bek - a.bek || b.n - a.n; })
+        .map(function (r) { return { baslik: r.baslik, sku: r.sku, resim: r.resim, h: ['<b>' + esc(r.beden) + '</b>', r.n, r.bek ? '<b style="color:#a8461f">' + r.bek + '</b>' : 0, r.hazir, r.bild, r.sip, yuzde(r.sip, r.bild), r.stok == null ? '-' : r.stok] }; });
+      govde = '<div class="ist-kart"><div class="kpi-grid">' +
+        kpi(st.length, 'Talep') +
+        kpi(stBild.length, 'Bildirim gönderildi', yuzde(stBild.length, st.length) + ' talebe dönüldü') +
+        kpi(stSip.length, 'Bildirimden sonra sipariş', 'Dönüşüm ' + yuzde(stSip.length, stBild.length), true) +
+        kpi(stBekStokta.length, 'Stokta, bildirim bekliyor') +
+        kpi(stBek.length, 'Stok bekleniyor') +
+        kpi(stKendi.length, 'Bildirimsiz sipariş', 'Talepten sonra kendisi aldı') +
+        '</div>' + grafikHTML(kv1, ['Talep', 'Bildirim gönderildi', 'Siparişe döndü']) +
+        kirilimTablo('stok', 'Ürün ve beden bazında', 'En çok bekleyen beden en üstte. "Bekleyen": hâlâ stoksuz ve aktif talepler; "Stokta": stoğa girmiş ama bildirimi gönderilmemiş talepler.',
+          ['Ürün', 'Beden', 'Talep', 'Bekleyen', 'Stokta', 'Bildirildi', 'Sipariş', 'Dönüşüm', 'Şu anki stok'], rows) + '</div>';
+    }
 
-    // FİYAT
-    var fy = S.talepler.filter(function (t) { return t.tip === 'fiyat' && icinde(t.talepTarihi); });
-    var fyKupon = fy.filter(function (t) { return t.kuponTarih; });
-    var fyFiyat = fy.filter(function (t) { return t.fiyatBildirim; });
-    var fyDonus = fy.filter(function (t) { return t.kuponTarih || t.fiyatBildirim; });
-    var fySip = fy.filter(function (t) { return siparisBul(t); });
-    var fySipDonus = fyDonus.filter(function (t) { var g = [t.kuponTarih, t.fiyatBildirim].filter(Boolean).sort(function (a, b) { return a - b; })[0]; return siparisBul(t, g); });
-    var fyKul = fyKupon.filter(function (t) { return t.kod && S.kullanilanKodlar[t.kod.toUpperCase()]; });
-    var kv2 = kovalar(P);
-    fy.forEach(function (t) { kovaya(kv2, t.talepTarihi, 0); if (t.kuponTarih || t.fiyatBildirim) kovaya(kv2, t.talepTarihi, 1); if (siparisBul(t)) kovaya(kv2, t.talepTarihi, 2); });
-    var k2 = '<div class="ist-kart"><h2>Fiyat alarmları</h2><div class="kpi-grid">' +
-      kpi(fy.length, 'Alarm') +
-      kpi(fyDonus.length, 'Dönüş yapıldı', 'Kupon ' + fyKupon.length + ' · fiyat düştü ' + fyFiyat.length) +
-      kpi(fySip.length, 'Talepten sonra sipariş', 'Dönüşüm ' + yuzde(fySip.length, fy.length), true) +
-      kpi(fySipDonus.length, 'Dönüşten sonra sipariş', yuzde(fySipDonus.length, fyDonus.length) + ' / dönülenler') +
-      kpi(fyKul.length, 'Kupon kullanıldı', 'Kullanım ' + yuzde(fyKul.length, fyKupon.length)) +
-      '</div>' + grafikHTML(kv2, ['Alarm', 'Dönüş yapıldı', 'Siparişe döndü']) + '</div>';
+    if (S.istBolum === 'fiyat') {
+      var fy = S.talepler.filter(function (t) { return t.tip === 'fiyat' && icinde(t.talepTarihi); });
+      var fyKupon = fy.filter(function (t) { return t.kuponTarih; });
+      var fyFiyat = fy.filter(function (t) { return t.fiyatBildirim; });
+      var ilkDonus = function (t) { return [t.kuponTarih, t.fiyatBildirim].filter(Boolean).sort(function (a, b) { return a - b; })[0]; };
+      var fyDonus = fy.filter(function (t) { return ilkDonus(t); });
+      var fySip = fy.filter(function (t) { return siparisBul(t); });
+      var fySipDonus = fyDonus.filter(function (t) { return siparisBul(t, ilkDonus(t)); });
+      var kullanildi = function (t) { return t.kod && S.kullanilanKodlar[t.kod.toUpperCase()]; };
+      var fyKul = fyKupon.filter(kullanildi);
+      var kv2 = kovalar(P);
+      fy.forEach(function (t) { kovaya(kv2, t.talepTarihi, 0); if (ilkDonus(t)) kovaya(kv2, t.talepTarihi, 1); if (siparisBul(t)) kovaya(kv2, t.talepTarihi, 2); });
+      var gf = {};
+      fy.forEach(function (t) {
+        var k = t.urun ? t.urun.id : 'x';
+        var r = gf[k] = gf[k] || { baslik: t.urun ? t.urun.title : '(ürün silinmiş)', sku: t.varyant ? t.varyant.sku : '', resim: t.urun && t.urun.featuredMedia && t.urun.featuredMedia.preview && t.urun.featuredMedia.preview.image ? t.urun.featuredMedia.preview.image.url : '', n: 0, aktif: 0, donus: 0, sip: 0, kul: 0, bedenler: {}, talepFiyat: t.talepFiyati, simdi: t.guncelFiyat };
+        r.n++;
+        if (t.durum === 'aktif') r.aktif++;
+        if (ilkDonus(t)) r.donus++;
+        if (siparisBul(t)) r.sip++;
+        if (t.kuponTarih && kullanildi(t)) r.kul++;
+        var bd = t.beden || '-'; r.bedenler[bd] = (r.bedenler[bd] || 0) + 1;
+        if (t.talepFiyati != null && (r.talepFiyat == null || t.talepFiyati > r.talepFiyat)) r.talepFiyat = t.talepFiyati;
+      });
+      var rowsF = Object.keys(gf).map(function (k) { return gf[k]; }).filter(aramaUygun).sort(function (a, b) { return b.aktif - a.aktif || b.n - a.n; })
+        .map(function (r) {
+          var bedenler = Object.keys(r.bedenler).map(function (b) { return esc(b) + (r.bedenler[b] > 1 ? ' ×' + r.bedenler[b] : ''); }).join(', ');
+          var fiyat = tl(r.simdi) + (r.talepFiyat != null && r.simdi < r.talepFiyat - 0.01 ? ' <span style="color:#1d6b34">(düştü)</span>' : '');
+          return { baslik: r.baslik, sku: r.sku, resim: r.resim, h: [bedenler, r.n, r.aktif ? '<b style="color:#a8461f">' + r.aktif + '</b>' : 0, r.donus, r.sip, yuzde(r.sip, r.n), r.kul, fiyat] };
+        });
+      govde = '<div class="ist-kart"><div class="kpi-grid">' +
+        kpi(fy.length, 'Alarm') +
+        kpi(fyDonus.length, 'Dönüş yapıldı', 'Kupon ' + fyKupon.length + ' · fiyat düştü ' + fyFiyat.length) +
+        kpi(fySip.length, 'Talepten sonra sipariş', 'Dönüşüm ' + yuzde(fySip.length, fy.length), true) +
+        kpi(fySipDonus.length, 'Dönüşten sonra sipariş', yuzde(fySipDonus.length, fyDonus.length) + ' / dönülenler') +
+        kpi(fyKul.length, 'Kupon kullanıldı', 'Kullanım ' + yuzde(fyKul.length, fyKupon.length)) +
+        '</div>' + grafikHTML(kv2, ['Alarm', 'Dönüş yapıldı', 'Siparişe döndü']) +
+        kirilimTablo('fiyat', 'Ürün bazında', 'En çok aktif alarmı olan ürün en üstte. Çok alarm alan ürün, fiyat/indirim kararı için iyi bir işarettir.',
+          ['Ürün', 'Bedenler', 'Alarm', 'Aktif', 'Dönüş', 'Sipariş', 'Dönüşüm', 'Kupon kullanıldı', 'Şu anki fiyat'], rowsF) + '</div>';
+    }
 
-    // YARIM KALAN ÖDEMELER
-    var sp = S.sepetler.filter(function (s) { return icinde(s.tarih); }).map(function (s) { return { s: s, d: sepetDurum(s) }; });
-    var spHat = sp.filter(function (x) { return x.d.mesaj; });
-    var spHatSip = sp.filter(function (x) { return x.d.hatirlatmaSonrasi; });
-    var spKendi = sp.filter(function (x) { return x.d.donustu && !x.d.hatirlatmaSonrasi; });
-    var spKupon = sp.filter(function (x) { return x.d.kupon; });
-    var spKul = spKupon.filter(function (x) { return x.d.kod && S.kullanilanKodlar[x.d.kod.toUpperCase()]; });
-    var kurtarilan = spHatSip.reduce(function (t, x) { return t + (x.s.tutar || 0); }, 0);
-    var kv3 = kovalar(P);
-    sp.forEach(function (x) { kovaya(kv3, x.s.tarih, 0); if (x.d.mesaj) kovaya(kv3, x.s.tarih, 1); if (x.d.hatirlatmaSonrasi) kovaya(kv3, x.s.tarih, 2); });
-    var k3 = '<div class="ist-kart"><h2>Yarım kalan ödemeler</h2><div class="kpi-grid">' +
-      kpi(sp.length, 'Yarım kalan', 'Müşteri bazında') +
-      kpi(spHat.length, 'Hatırlatma gönderildi', yuzde(spHat.length, sp.length) + ' müşteriye dönüldü') +
-      kpi(spHatSip.length, 'Hatırlatmadan sonra sipariş', 'Dönüşüm ' + yuzde(spHatSip.length, spHat.length), true) +
-      kpi(tl(kurtarilan), 'Kurtarılan sepet tutarı', 'Hatırlatma sonrası dönenler') +
-      kpi(spKupon.length, 'Kupon gönderildi', 'Kullanılan ' + spKul.length) +
-      kpi(spKendi.length, 'Hatırlatmasız sipariş', 'Kendisi tamamladı') +
-      '</div>' + grafikHTML(kv3, ['Yarım kalan', 'Hatırlatma gönderildi', 'Siparişe döndü']) + '</div>';
+    if (S.istBolum === 'sepet') {
+      var sp = S.sepetler.filter(function (s) { return icinde(s.tarih); }).map(function (s) { return { s: s, d: sepetDurum(s) }; });
+      var spHat = sp.filter(function (x) { return x.d.mesaj; });
+      var spHatSip = sp.filter(function (x) { return x.d.hatirlatmaSonrasi; });
+      var spKendi = sp.filter(function (x) { return x.d.donustu && !x.d.hatirlatmaSonrasi; });
+      var spKupon = sp.filter(function (x) { return x.d.kupon; });
+      var spKul = spKupon.filter(function (x) { return x.d.kod && S.kullanilanKodlar[x.d.kod.toUpperCase()]; });
+      var kurtarilan = spHatSip.reduce(function (t, x) { return t + (x.s.tutar || 0); }, 0);
+      var toplamTutar = sp.reduce(function (t, x) { return t + (x.d.donustu ? 0 : (x.s.tutar || 0)); }, 0);
+      var kv3 = kovalar(P);
+      sp.forEach(function (x) { kovaya(kv3, x.s.tarih, 0); if (x.d.mesaj) kovaya(kv3, x.s.tarih, 1); if (x.d.hatirlatmaSonrasi) kovaya(kv3, x.s.tarih, 2); });
+      var gs = {};
+      sp.forEach(function (x) {
+        x.s.urunler.forEach(function (u) {
+          var bd = bedenAl(u.variant && u.variant.selectedOptions, u.variantTitle);
+          var k = (u.product ? u.product.id : u.title) + '|' + (u.variant ? u.variant.id : bd);
+          var r = gs[k] = gs[k] || { baslik: u.title, sku: u.sku || '', resim: u.image ? u.image.url : '', beden: bd, stok: u.variant ? u.variant.inventoryQuantity : null, n: 0, adet: 0, hat: 0, sip: 0, kendi: 0 };
+          r.n++; r.adet += u.quantity || 1;
+          if (x.d.mesaj) r.hat++;
+          if (x.d.hatirlatmaSonrasi) r.sip++;
+          else if (x.d.donustu) r.kendi++;
+        });
+      });
+      var rowsS = Object.keys(gs).map(function (k) { return gs[k]; }).filter(aramaUygun).sort(function (a, b) { return b.n - a.n || b.adet - a.adet; })
+        .map(function (r) { return { baslik: r.baslik, sku: r.sku, resim: r.resim, h: ['<b>' + esc(r.beden) + '</b>', r.n, r.adet, r.hat, r.sip, r.kendi, r.stok == null ? '-' : (r.stok <= 0 ? '<b style="color:#a12a1e">0</b>' : r.stok)] }; });
+      govde = '<div class="ist-kart"><div class="kpi-grid">' +
+        kpi(sp.length, 'Yarım kalan', 'Müşteri bazında') +
+        kpi(spHat.length, 'Hatırlatma gönderildi', yuzde(spHat.length, sp.length) + ' müşteriye dönüldü') +
+        kpi(spHatSip.length, 'Hatırlatmadan sonra sipariş', 'Dönüşüm ' + yuzde(spHatSip.length, spHat.length), true) +
+        kpi(tl(kurtarilan), 'Kurtarılan sepet tutarı', 'Hatırlatma sonrası dönenler') +
+        kpi(tl(toplamTutar), 'Kaybedilen sepet tutarı', 'Siparişe dönmeyenler') +
+        kpi(spKupon.length, 'Kupon gönderildi', 'Kullanılan ' + spKul.length) +
+        kpi(spKendi.length, 'Hatırlatmasız sipariş', 'Kendisi tamamladı') +
+        '</div>' + grafikHTML(kv3, ['Yarım kalan', 'Hatırlatma gönderildi', 'Siparişe döndü']) +
+        kirilimTablo('sepet', 'Ürün ve beden bazında', 'Ödemesi en çok yarım kalan ürün/beden en üstte. Stok 0 olanlar kırmızı: müşteri ödeme aşamasında stok sorunu yaşamış olabilir.',
+          ['Ürün', 'Beden', 'Sepette kaldı', 'Adet', 'Hatırlatılan', 'Hatırlatma sonrası sipariş', 'Kendi tamamladı', 'Şu anki stok'], rowsS) + '</div>';
+    }
 
     var not = '<div class="bilgi-kutu">Sipariş eşleşmesi telefon numarasıyla yapılır (son ' + S.veriGun + ' günün siparişleri). Shopify yarım kalan ödemeleri en fazla birkaç ay saklar.</div>';
-    return '<div class="ist">' + don + k1 + k2 + k3 + not + '</div>';
+    return '<div class="ist">' + ust + govde + not + '</div>';
   }
 
   function sepetSekmesiHTML(g) {
@@ -952,6 +1046,10 @@
   $('zksIcerik').addEventListener('click', function (e) {
     var hf = e.target.closest('[data-sepetfiltre]');
     if (hf) { S.sepetFiltre = hf.getAttribute('data-sepetfiltre'); ciz(); return; }
+    var ib = e.target.closest('[data-istbolum]');
+    if (ib) { S.istBolum = ib.getAttribute('data-istbolum'); ciz(); return; }
+    var it = e.target.closest('[data-isttum]');
+    if (it) { var bk = it.getAttribute('data-isttum'); S.istTum[bk] = !S.istTum[bk]; ciz(); return; }
     var dn = e.target.closest('[data-donem]');
     if (dn) { donemSec(parseInt(dn.getAttribute('data-donem'), 10)); return; }
     var b = e.target.closest('[data-aksiyon]'); if (!b) return;
