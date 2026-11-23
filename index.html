@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="shopify-api-key" content="5aac338d11649c827086b94bb667abb6">
+<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+<title>ZKS Bildirim Merkezi</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f1f1f1;margin:0}
+  #zks-yukleniyor{padding:24px;color:#888;font-size:14px}
+</style>
+</head>
+<body>
+<div id="zks-yukleniyor">ZKS Bildirim Merkezi yükleniyor…</div>
+<script>
+/* ZKS Bildirim Merkezi - başlatıcı
+   Bu dosya değişmez. Panelin asıl kodu Shopify'da mağaza ayarında durur:
+   shop metafield  zks_app.bildirim_merkezi_html  */
+(async function () {
+  var el = document.getElementById('zks-yukleniyor');
+  try {
+    if (window.top === window.self) throw new Error('Bu sayfa Shopify Admin içinden açılmalı.');
+    var r = await fetch('shopify:admin/api/2025-10/graphql.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: '{ shop { metafield(namespace: "zks_app", key: "bildirim_merkezi_html") { value } } }' })
+    });
+    var j = await r.json();
+    var html = j && j.data && j.data.shop && j.data.shop.metafield && j.data.shop.metafield.value;
+    if (!html) throw new Error('Panel kodu bulunamadı (' + JSON.stringify(j.errors || j).slice(0, 200) + ')');
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    if (doc.title) document.title = doc.title;
+    [].slice.call(doc.head.querySelectorAll('style, link[rel="stylesheet"]')).forEach(function (n) { document.head.appendChild(n); });
+    var scripts = [].slice.call(doc.body.querySelectorAll('script'));
+    scripts.forEach(function (s) { s.remove(); });
+    document.body.innerHTML = doc.body.innerHTML;
+    for (var i = 0; i < scripts.length; i++) {
+      var s = scripts[i];
+      if (s.src && s.src.indexOf('app-bridge') > -1) continue;
+      var n = document.createElement('script');
+      if (s.src) {
+        n.src = s.src;
+        await new Promise(function (res) { n.onload = n.onerror = res; document.body.appendChild(n); });
+      } else {
+        n.textContent = s.textContent;
+        document.body.appendChild(n);
+      }
+    }
+  } catch (e) {
+    el.textContent = 'Panel yüklenemedi: ' + e.message;
+    el.style.color = '#c0392b';
+  }
+})();
+</script>
+</body>
+</html>
