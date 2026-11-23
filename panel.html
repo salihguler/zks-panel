@@ -520,7 +520,8 @@
     var ad = a.replace(/\D/g, '');
     return l.filter(function (t) {
       return (ad.length >= 3 && String(t.telefon).replace(/\D/g, '').indexOf(ad) > -1) ||
-        (t.urun && t.urun.title.toLocaleLowerCase('tr').indexOf(a) > -1);
+        (t.urun && t.urun.title.toLocaleLowerCase('tr').indexOf(a) > -1) ||
+        (t.varyant && t.varyant.sku && t.varyant.sku.toLocaleLowerCase('tr').indexOf(a) > -1);
     });
   }
   function gruplar() {
@@ -691,6 +692,44 @@
     return (r.baslik || '').toLocaleLowerCase('tr').indexOf(a) > -1 || (r.sku || '').toLocaleLowerCase('tr').indexOf(a) > -1;
   }
 
+  function durumAdi(t) { return t.durum === 'iptal' ? 'Kapatıldı' : t.durum === 'tamamlandi' ? 'Tamamlandı' : (t.tip === 'stok' ? (t.stokta ? 'Stokta, bildirim bekliyor' : 'Stok bekleniyor') : 'Aktif'); }
+
+  function sheetjsYukle() {
+    if (window.XLSX) return Promise.resolve();
+    return new Promise(function (ok, hata) {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+      s.onload = function () { ok(); };
+      s.onerror = function () { hata(new Error('Excel kütüphanesi yüklenemedi')); };
+      document.head.appendChild(s);
+    });
+  }
+  function excelHucre(v) {
+    return v;
+  }
+  async function excelAktar() {
+    var V = S.istVeri;
+    if (!V) return;
+    S.excelMesgul = true; ciz();
+    try {
+      await sheetjsYukle();
+      var X = window.XLSX, wb = X.utils.book_new();
+      var ozet = [[V.ad + ' — son ' + S.donem + ' gün', ''], ['Oluşturma', new Date()], ['', '']].concat(V.ozet);
+      var sayfa = function (ad, satirlar, genislik) {
+        var ws = X.utils.aoa_to_sheet(satirlar.map(function (r) { return r.map(excelHucre); }), { cellDates: true, dateNF: 'dd/mm/yyyy hh:mm' });
+        ws['!cols'] = genislik.map(function (w) { return { wch: w }; });
+        X.utils.book_append_sheet(wb, ws, ad);
+      };
+      sayfa('Özet', ozet, [32, 18]);
+      sayfa('Ürünler', [V.urunBaslik].concat(V.urunler), [46, 12].concat(V.urunBaslik.slice(2).map(function () { return 14; })));
+      sayfa('Kayıtlar', [V.kayitBaslik].concat(V.kayitlar), V.kayitBaslik.map(function (b) { return /Ürün/.test(b) ? 46 : 18; }));
+      var dosya = 'zks-' + V.ad.toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c').replace(/[^a-z0-9]+/g, '-') + '-son' + S.donem + 'gun-' + new Date().toISOString().slice(0, 10) + '.xlsx';
+      X.writeFile(wb, dosya, { compression: true });
+      bildir('Excel dosyası indirildi: ' + dosya);
+    } catch (e) { bildir('Excel oluşturulamadı: ' + e.message, true); }
+    S.excelMesgul = false; ciz();
+  }
+
   function istatistikHTML() {
     var P = S.donem, sinir = Date.now() - P * 86400000;
     var icinde = function (d) { return d && d.getTime() >= sinir; };
@@ -698,7 +737,8 @@
       [['stok', 'Stok talepleri'], ['fiyat', 'Fiyat alarmları'], ['sepet', 'Yarım kalan ödemeler']].map(function (b) {
         return '<button class="btn' + (S.istBolum === b[0] ? ' btn-ana' : '') + '" data-istbolum="' + b[0] + '">' + b[1] + '</button>';
       }).join('') + '<span style="flex:1"></span><span class="bilgi-kutu" style="margin:0 4px 0 0">Dönem:</span>' +
-      [7, 30, 90].map(function (g) { return '<button class="btn btn-kucuk' + (S.donem === g ? ' btn-ana' : '') + '" data-donem="' + g + '">Son ' + g + ' gün</button>'; }).join('') + '</div>' +
+      [7, 30, 90].map(function (g) { return '<button class="btn btn-kucuk' + (S.donem === g ? ' btn-ana' : '') + '" data-donem="' + g + '">Son ' + g + ' gün</button>'; }).join('') +
+      '<button class="btn btn-kucuk" data-excel="1" style="margin-left:6px">' + (S.excelMesgul ? 'Hazırlanıyor…' : '⬇ Excel\'e aktar') + '</button></div>' +
       '<div class="bilgi-kutu">Grafik, talebin geldiği ' + (P <= 14 ? 'güne' : 'haftaya') + ' göre gruplanır: o dönemde gelen taleplerden kaçına dönüldüğünü ve kaçının siparişe döndüğünü gösterir. Ürün tablosu üstteki arama kutusuyla (ürün adı veya kodu) süzülebilir.</div>';
     var govde = '';
 
@@ -720,7 +760,16 @@
         if (t.durum === 'aktif' && t.stokta) r.hazir++;
         if (t.stokBildirim) { r.bild++; if (siparisBul(t, t.stokBildirim)) r.sip++; }
       });
-      var rows = Object.keys(gr).map(function (k) { return gr[k]; }).filter(aramaUygun).sort(function (a, b) { return b.bek - a.bek || b.n - a.n; })
+      var grL = Object.keys(gr).map(function (k) { return gr[k]; }).filter(aramaUygun).sort(function (a, b) { return b.bek - a.bek || b.n - a.n; });
+      S.istVeri = {
+        ad: 'Stok talepleri',
+        ozet: [['Talep', st.length], ['Bildirim gönderildi', stBild.length], ['Bildirimden sonra sipariş', stSip.length], ['Dönüşüm', yuzde(stSip.length, stBild.length)], ['Stokta, bildirim bekliyor', stBekStokta.length], ['Stok bekleniyor', stBek.length], ['Bildirimsiz sipariş', stKendi.length]],
+        urunBaslik: ['Ürün', 'Ürün kodu', 'Beden', 'Talep', 'Bekleyen', 'Stokta', 'Bildirildi', 'Sipariş', 'Dönüşüm', 'Şu anki stok'],
+        urunler: grL.map(function (r) { return [r.baslik, r.sku || '', r.beden, r.n, r.bek, r.hazir, r.bild, r.sip, yuzde(r.sip, r.bild), r.stok == null ? '' : r.stok]; }),
+        kayitBaslik: ['Talep tarihi', 'Telefon', 'Ürün', 'Ürün kodu', 'Beden', 'Durum', 'Stok bildirimi', 'Sipariş', 'Sipariş tarihi'],
+        kayitlar: st.map(function (t) { var s = t.stokBildirim ? siparisBul(t, t.stokBildirim) : null; return [t.talepTarihi, t.telefon, t.urun ? t.urun.title : '', t.varyant ? t.varyant.sku || '' : '', t.beden, durumAdi(t), t.stokBildirim || '', s ? s.ad : '', s ? s.tarih : '']; })
+      };
+      var rows = grL
         .map(function (r) { return { baslik: r.baslik, sku: r.sku, resim: r.resim, h: ['<b>' + esc(r.beden) + '</b>', r.n, r.bek ? '<b style="color:#a8461f">' + r.bek + '</b>' : 0, r.hazir, r.bild, r.sip, yuzde(r.sip, r.bild), r.stok == null ? '-' : r.stok] }; });
       govde = '<div class="ist-kart"><div class="kpi-grid">' +
         kpi(st.length, 'Talep') +
@@ -758,7 +807,16 @@
         var bd = t.beden || '-'; r.bedenler[bd] = (r.bedenler[bd] || 0) + 1;
         if (t.talepFiyati != null && (r.talepFiyat == null || t.talepFiyati > r.talepFiyat)) r.talepFiyat = t.talepFiyati;
       });
-      var rowsF = Object.keys(gf).map(function (k) { return gf[k]; }).filter(aramaUygun).sort(function (a, b) { return b.aktif - a.aktif || b.n - a.n; })
+      var gfL = Object.keys(gf).map(function (k) { return gf[k]; }).filter(aramaUygun).sort(function (a, b) { return b.aktif - a.aktif || b.n - a.n; });
+      S.istVeri = {
+        ad: 'Fiyat alarmları',
+        ozet: [['Alarm', fy.length], ['Dönüş yapıldı', fyDonus.length], ['Kupon gönderildi', fyKupon.length], ['Fiyat düştü bildirimi', fyFiyat.length], ['Talepten sonra sipariş', fySip.length], ['Dönüşüm', yuzde(fySip.length, fy.length)], ['Dönüşten sonra sipariş', fySipDonus.length], ['Kupon kullanıldı', fyKul.length]],
+        urunBaslik: ['Ürün', 'Ürün kodu', 'Bedenler', 'Alarm', 'Aktif', 'Dönüş', 'Sipariş', 'Dönüşüm', 'Kupon kullanıldı', 'Şu anki fiyat (TL)'],
+        urunler: gfL.map(function (r) { return [r.baslik, r.sku || '', Object.keys(r.bedenler).map(function (b) { return b + (r.bedenler[b] > 1 ? ' x' + r.bedenler[b] : ''); }).join(', '), r.n, r.aktif, r.donus, r.sip, yuzde(r.sip, r.n), r.kul, r.simdi]; }),
+        kayitBaslik: ['Talep tarihi', 'Telefon', 'Ürün', 'Ürün kodu', 'Beden', 'Talep fiyatı', 'Şu anki fiyat', 'Durum', 'Kupon kodu', 'Kupon gönderildi', 'Kupon kullanıldığı sipariş', 'Fiyat düştü bildirimi', 'Sipariş', 'Sipariş tarihi'],
+        kayitlar: fy.map(function (t) { var s = siparisBul(t), k = t.kod && S.kullanilanKodlar[t.kod.toUpperCase()]; return [t.talepTarihi, t.telefon, t.urun ? t.urun.title : '', t.varyant ? t.varyant.sku || '' : '', t.beden, t.talepFiyati, t.guncelFiyat, durumAdi(t), t.kod || '', t.kuponTarih || '', k ? k.ad : '', t.fiyatBildirim || '', s ? s.ad : '', s ? s.tarih : '']; })
+      };
+      var rowsF = gfL
         .map(function (r) {
           var bedenler = Object.keys(r.bedenler).map(function (b) { return esc(b) + (r.bedenler[b] > 1 ? ' ×' + r.bedenler[b] : ''); }).join(', ');
           var fiyat = tl(r.simdi) + (r.talepFiyat != null && r.simdi < r.talepFiyat - 0.01 ? ' <span style="color:#1d6b34">(düştü)</span>' : '');
@@ -798,7 +856,16 @@
           else if (x.d.donustu) r.kendi++;
         });
       });
-      var rowsS = Object.keys(gs).map(function (k) { return gs[k]; }).filter(aramaUygun).sort(function (a, b) { return b.n - a.n || b.adet - a.adet; })
+      var gsL = Object.keys(gs).map(function (k) { return gs[k]; }).filter(aramaUygun).sort(function (a, b) { return b.n - a.n || b.adet - a.adet; });
+      S.istVeri = {
+        ad: 'Yarım kalan ödemeler',
+        ozet: [['Yarım kalan (müşteri)', sp.length], ['Hatırlatma gönderildi', spHat.length], ['Hatırlatmadan sonra sipariş', spHatSip.length], ['Dönüşüm', yuzde(spHatSip.length, spHat.length)], ['Kurtarılan sepet tutarı (TL)', kurtarilan], ['Kaybedilen sepet tutarı (TL)', toplamTutar], ['Kupon gönderildi', spKupon.length], ['Kupon kullanıldı', spKul.length], ['Hatırlatmasız sipariş', spKendi.length]],
+        urunBaslik: ['Ürün', 'Ürün kodu', 'Beden', 'Sepette kaldı', 'Adet', 'Hatırlatılan', 'Hatırlatma sonrası sipariş', 'Kendi tamamladı', 'Şu anki stok'],
+        urunler: gsL.map(function (r) { return [r.baslik, r.sku || '', r.beden, r.n, r.adet, r.hat, r.sip, r.kendi, r.stok == null ? '' : r.stok]; }),
+        kayitBaslik: ['Sepet tarihi', 'Müşteri', 'Telefon', 'Ürünler', 'Tutar (TL)', 'Hatırlatma', 'Kupon kodu', 'Kupon gönderildi', 'Sipariş', 'Sipariş tarihi', 'Durum'],
+        kayitlar: sp.map(function (x) { var s = x.s, d = x.d; return [s.tarih, (s.ad + ' ' + s.soyad).trim(), s.telefon, s.urunler.map(function (u) { return u.title + (u.variantTitle ? ' (' + u.variantTitle + ')' : '') + (u.quantity > 1 ? ' x' + u.quantity : ''); }).join('; '), s.tutar, d.mesaj || '', d.kod || '', d.kupon || '', d.siparis ? d.siparis.ad : (s.tamamlandi ? 'tamamlandı' : ''), d.siparis ? d.siparis.tarih : '', d.hatirlatmaSonrasi ? 'Hatırlatma sonrası sipariş' : d.donustu ? 'Kendisi tamamladı' : d.mesaj ? 'Takipte' : 'Hatırlatılmadı']; })
+      };
+      var rowsS = gsL
         .map(function (r) { return { baslik: r.baslik, sku: r.sku, resim: r.resim, h: ['<b>' + esc(r.beden) + '</b>', r.n, r.adet, r.hat, r.sip, r.kendi, r.stok == null ? '-' : (r.stok <= 0 ? '<b style="color:#a12a1e">0</b>' : r.stok)] }; });
       govde = '<div class="ist-kart"><div class="kpi-grid">' +
         kpi(sp.length, 'Yarım kalan', 'Müşteri bazında') +
@@ -1046,6 +1113,8 @@
   $('zksIcerik').addEventListener('click', function (e) {
     var hf = e.target.closest('[data-sepetfiltre]');
     if (hf) { S.sepetFiltre = hf.getAttribute('data-sepetfiltre'); ciz(); return; }
+    var ex = e.target.closest('[data-excel]');
+    if (ex) { if (!S.excelMesgul) excelAktar(); return; }
     var ib = e.target.closest('[data-istbolum]');
     if (ib) { S.istBolum = ib.getAttribute('data-istbolum'); ciz(); return; }
     var it = e.target.closest('[data-isttum]');
@@ -1078,6 +1147,12 @@
   });
   $('zksAra').addEventListener('input', function (e) { S.arama = e.target.value; ciz(); });
   $('zksYenile').addEventListener('click', hepsiniYukle);
+  try {
+    var qp = new URLSearchParams(location.search);
+    if (qp.get('ara')) { S.arama = qp.get('ara'); $('zksAra').value = S.arama; }
+    if (qp.get('sekme')) S.sekme = qp.get('sekme');
+    if (qp.get('bolum')) S.istBolum = qp.get('bolum');
+  } catch (e) {}
 
   hepsiniYukle();
 })();
